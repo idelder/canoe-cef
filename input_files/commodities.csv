@@ -1,0 +1,14 @@
+﻿comm,cef_fuel,description,include
+bio,Biofuels & Emerging Energy,biofuel,TRUE
+elc,Electricity,electricity,TRUE
+h2,Hydrogen,hydrogen,TRUE
+ng,Natural Gas,natural gas,TRUE
+oth,Other,other,FALSE
+rpp,RPP,refined petroleum products,TRUE
+jfl,Aviation Fuel,aviation fuel,TRUE
+bio,Biofuels,biofuel,TRUE
+dsl,Diesel,diesel,TRUE
+hfo,Heavy Fuel Oil,heavy fuel oil,TRUE
+lpg,LPG,lpg,TRUE
+lub,Lubricants,petroleum-based lubricants,FALSE
+gsl,Motor Gasoline,gasoline,TRUE

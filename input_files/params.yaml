@@ -1,0 +1,25 @@
+# Configuration for aggregation of simple sector versions based on 
+# Canada's Energy Future data
+
+# Must be in ascending order along with all data in tables!
+model_periods:
+  - 2025
+  - 2030
+  - 2035
+  - 2040
+  - 2045
+  - 2050
+
+sqlite_schema: "temoa_schema_v3_1.sql"
+sqlite_database: "cef.sqlite"
+force_wipe_database: true
+
+# Which CEF scenario to pull data for
+# "Current Measures", "Canada Net-zero", or "Global Net-zero"
+scenario: "Global Net-zero"
+
+energy_units: "PJ"
+conversion_factor: 1
+decimal_places: 1
+zero_thresh: 0.5 # Fuel demands below this become zero
+split_thresh: 0.01 # Fuel proportions below this become zero

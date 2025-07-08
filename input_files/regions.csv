@@ -1,0 +1,14 @@
+﻿region,cef_region,description,include
+AB,Alberta,alberta,TRUE
+BC,British Columbia,british columbia,TRUE
+MB,Manitoba,manitoba,TRUE
+ON,Ontario,ontario,TRUE
+QC,Quebec,quebec,TRUE
+SK,Saskatchewan,saskatchewan,TRUE
+NB,New Brunswick,new brunswick,FALSE
+NS,Nova Scotia,nova scotia,FALSE
+NLLAB,Newfoundland and Labrador,newfoundland and labrador,FALSE
+NT,Northwest Territories,northwest territories,FALSE
+NU,Nunavut,nunavut,FALSE
+PEI,Prince Edward Island,prince edward island,FALSE
+YT,Yukon,yukon,FALSE
