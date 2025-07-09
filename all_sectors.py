@@ -78,9 +78,10 @@ def build():
         sector = config.sectors.loc[tech.split("_")[0]]
         
         # Technology
+        annual = int(not config.params['use_dsd'])
         sql = (
             'REPLACE INTO Technology(tech, flag, sector, unlim_cap, annual, description) '
-            f'VALUES("{tech}", "p", "{sector["sector"]}", 1, 1, "{sector["tech_desc"]}")'
+            f'VALUES("{tech}", "p", "{sector["sector"]}", 1, {annual}, "{sector["tech_desc"]}")'
         )
         curs.execute(sql)
 
@@ -149,16 +150,46 @@ def build():
             ) # <= should, in theory, be least likely to cause infeasibility / numerical issues?
             curs.execute(sql)
 
-    # DSDs (only affects electricity) TODO later?
-
     conn.commit()
+
+    # DSDs (only affects electricity)
+    if config.params['use_dsd']:
+        build_dsd()
 
     if config.params['build_test_model']:
         region_comms = set([tuple(rc) for rc in df_cef.reset_index()[['region','comm']].values])
         build_tester(region_comms)
 
 
+def build_dsd():
+
+    df_dsd = pd.read_csv(config.input_files + 'dsd_electricity.csv')
+
+    data = []
+    progr = 0
+    for region in config.model_regions:
+        for tag, sector in config.sectors.iterrows():
+            for period in config.model_periods:
+                for _, row in df_dsd.iterrows():
+                    dem_comm = f'{tag}_D_{sector["tech"].lower()}'
+                    val = row[f'{region}.{tag}']
+                    data.append((region, period, row['season'], row['tod'], dem_comm, val))
+            progr += 1
+            print(f'{progr/(len(config.model_regions)*len(config.sectors))*100:.0f}% complete.')
+    sql = (
+        'REPLACE INTO DemandSpecificDistribution(region, period, season, tod, demand_name, dsd) '
+        f'VALUES(?,?,?,?,?,?)'
+    )
+
+    conn = sqlite3.connect(config.database_file)
+    conn.executemany(sql, data)
+    conn.commit()
+    conn.close()
+
+
 def build_tester(region_comms):
+
+    df_dsd = pd.read_csv(config.input_files + 'dsd_electricity.csv')
 
     conn = sqlite3.connect(config.database_file)
     curs = conn.cursor()
@@ -177,16 +208,30 @@ def build_tester(region_comms):
             f'VALUES({i}, {period}, "f")'
         )
         curs.execute(sql)
-        sql = (
-            'REPLACE INTO TimeSeason(period, sequence, season) '
-            f'VALUES({period}, 0, "S")'
-        )
-        curs.execute(sql)
-        sql = (
-            'REPLACE INTO TimeSegmentFraction(period, season, tod, segfrac) '
-            f'VALUES({period}, "S", "D", 1)'
-        )
-        curs.execute(sql)
+        if config.params['use_dsd']:
+            for idx, row in df_dsd.iterrows():
+                sql = (
+                    'REPLACE INTO TimeSeason(period, sequence, season) '
+                    f'VALUES({period}, {idx}, "{row["season"]}")'
+                )
+                curs.execute(sql)
+                sql = (
+                    'REPLACE INTO TimeSegmentFraction(period, season, tod, segfrac) '
+                    f'VALUES({period}, "{row["season"]}", "{row["tod"]}", {1/len(df_dsd)})'
+                )
+                curs.execute(sql)
+        else:
+            sql = (
+                'REPLACE INTO TimeSeason(period, sequence, season) '
+                f'VALUES({period}, 0, "S")'
+            )
+            curs.execute(sql)
+            sql = (
+                'REPLACE INTO TimeSegmentFraction(period, season, tod, segfrac) '
+                f'VALUES({period}, "S", "D", 1)'
+            )
+            curs.execute(sql)
+
     sql = (
         'REPLACE INTO TimePeriod(sequence, period, flag) '
         f'VALUES({i+1}, {period+5}, "f")'
@@ -194,17 +239,30 @@ def build_tester(region_comms):
     curs.execute(sql)
 
     # Time slices
-    sql = (
-        'REPLACE INTO SeasonLabel(season) '
-        f'VALUES("S")'
-    )
-    curs.execute(sql)
-    sql = (
-        'REPLACE INTO TimeOfDay(sequence, tod) '
-        f'VALUES(0, "D")'
-    )
-    curs.execute(sql)
-    
+    if config.params['use_dsd']:
+        for season in df_dsd['season'].unique():
+            sql = (
+                'REPLACE INTO SeasonLabel(season) '
+                f'VALUES("{season}")'
+            )
+            curs.execute(sql)
+        for idx, tod in enumerate(df_dsd['tod'].unique()):
+            sql = (
+                'REPLACE INTO TimeOfDay(sequence, tod) '
+                f'VALUES({idx}, "{tod}")'
+            )
+            curs.execute(sql)
+    else:
+        sql = (
+            'REPLACE INTO SeasonLabel(season) '
+            f'VALUES("S")'
+        )
+        curs.execute(sql)
+        sql = (
+            'REPLACE INTO TimeOfDay(sequence, tod) '
+            f'VALUES(0, "D")'
+        )
+        curs.execute(sql)
 
     sql = (
         'REPLACE INTO Commodity(name, flag, description) '

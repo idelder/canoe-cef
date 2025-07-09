@@ -16,6 +16,7 @@ sqlite_database: "cef.sqlite"
 # Switches
 force_wipe_database: true
 build_test_model: true
+use_dsd: true
 
 # Which CEF scenario to pull data for
 # "Current Measures", "Canada Net-zero", or "Global Net-zero"
