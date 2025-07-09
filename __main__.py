@@ -5,3 +5,7 @@ iandavidelder@gmail.com
 2025/07/07
 """
 
+import all_sectors
+
+if __name__ == "__main__":
+    all_sectors.build()

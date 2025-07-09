@@ -7,7 +7,7 @@ def build():
     conn = sqlite3.connect(config.database_file)
     curs = conn.cursor()
 
-    df_cef: pd.DataFrame = pd.read_csv('input_files/end-use-demand-2023.csv')
+    df_cef: pd.DataFrame = pd.read_csv(config.input_files + 'end-use-demand-2023.csv')
 
     # Map CEF indexing to CANOE indexing
     region_map = dict()
