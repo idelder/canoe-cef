@@ -5,9 +5,9 @@ MB,Manitoba,manitoba,TRUE
 ON,Ontario,ontario,TRUE
 QC,Quebec,quebec,TRUE
 SK,Saskatchewan,saskatchewan,TRUE
-NB,New Brunswick,new brunswick,FALSE
-NS,Nova Scotia,nova scotia,FALSE
-NLLAB,Newfoundland and Labrador,newfoundland and labrador,FALSE
+NB,New Brunswick,new brunswick,TRUE
+NS,Nova Scotia,nova scotia,TRUE
+NLLAB,Newfoundland and Labrador,newfoundland and labrador,TRUE
 NT,Northwest Territories,northwest territories,FALSE
 NU,Nunavut,nunavut,FALSE
 PEI,Prince Edward Island,prince edward island,FALSE
