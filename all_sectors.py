@@ -1,12 +1,25 @@
 import pandas as pd
 import sqlite3
 from setup import config
-from itertools import product
 
 def build():
+    
+    build_sectors()
+    if config.params['use_dsd']: build_dsd() # only applies to electricity demand
+    if config.params['build_test_model']: build_tester()
+    build_metadata()
+
+    print("\nFinished!")
+
+
+def build_sectors():
+
+    print("Adding sector processes...")
+
     conn = sqlite3.connect(config.database_file)
     curs = conn.cursor()
 
+    # Get CEF data from local file
     df_cef: pd.DataFrame = pd.read_csv(config.input_files + 'end-use-demand-2023.csv')
 
     # Map CEF indexing to CANOE indexing
@@ -23,7 +36,7 @@ def build():
             sector_map[row['cef_sector']] = tag
             technology_map[row['cef_sector']] = row['tech']
 
-    # Filter data
+    # Filter relevant data
     df_cef = df_cef[
         (df_cef['Scenario'] == config.params['scenario'])
         & df_cef['Sector'].isin(sector_map.keys())
@@ -48,7 +61,7 @@ def build():
     # Get the total energy for each process in each period
     df_sum = df_cef.groupby(['region','tech','period'])['value'].sum()
 
-    # Filter out zero or tiny streams
+    # Filter out unused or tiny energy streams
     df = df_cef.groupby(['region','tech','comm'])[['period','value']]
     to_drop = set()
     for (region, tech, comm), _df in df:
@@ -73,15 +86,16 @@ def build():
     df_cef = df_cef.set_index(['region','tech','period','comm'])['value']
     df_cef = df_cef.sort_index()
 
-    # Add sectors
+    data_id = config.data_id()
+
+    # Add whole-sector processes
     for tech in df_cef.index.get_level_values('tech').unique():
         sector = config.sectors.loc[tech.split("_")[0]]
         
         # Technology
-        annual = int(not config.params['use_dsd'])
         sql = (
-            'REPLACE INTO Technology(tech, flag, sector, unlim_cap, annual, description) '
-            f'VALUES("{tech}", "p", "{sector["sector"]}", 1, {annual}, "{sector["tech_desc"]}")'
+            'REPLACE INTO Technology(tech, flag, sector, unlim_cap, annual, description, data_id) '
+            f'VALUES("{tech}", "p", "{sector["sector"]}", 1, 1, "{sector["tech_desc"]}", "{data_id}")'
         )
         curs.execute(sql)
 
@@ -95,8 +109,8 @@ def build():
         # Commodity (demand comm)
         dem_comm = f'{tech.split("_")[0]}_D_{tech.split("_")[1].lower()}'
         sql = (
-            'REPLACE INTO Commodity(name, flag, description) '
-            f'VALUES("{dem_comm}", "d", "({config.params["energy_units"]}) {sector["sector"]} energy demand")'
+            'REPLACE INTO Commodity(name, flag, description, data_id) '
+            f'VALUES("{dem_comm}", "d", "({config.params["energy_units"]}) {sector["sector"]} energy demand", "{data_id}")'
         )
         curs.execute(sql)
 
@@ -110,24 +124,30 @@ def build():
 
         # Commodity (fuel comms)
         sql = (
-            'REPLACE INTO Commodity(name, flag, description) '
-            f'VALUES("{comm}", "a", "({config.params["energy_units"]}) {desc}")'
+            'REPLACE INTO Commodity(name, flag, description, data_id) '
+            f'VALUES("{comm}", "{commodity["flag"]}", "({config.params["energy_units"]}) {desc}", "{data_id}")'
         )
         curs.execute(sql)
 
     # 2025 vintage processes for all techs
     for region, tech, comm in df_cef.xs(2025, level='period').index:
+
+        data_id = config.data_id(region)
         dem_comm = f'{tech.split("_")[0]}_D_{tech.split("_")[1].lower()}'
 
         # Efficiency
         sql = (
-            'REPLACE INTO Efficiency(region, input_comm, tech, vintage, output_comm, efficiency) '
-            f'VALUES("{region}", "{comm}", "{tech}", 2025, "{dem_comm}", 1.0)'
+            'REPLACE INTO Efficiency(region, input_comm, tech, vintage, output_comm, efficiency, data_id) '
+            f'VALUES("{region}", "{comm}", "{tech}", 2025, "{dem_comm}", 1.0, "{data_id}")'
         )
         curs.execute(sql)
 
+    ref = config.refs.add('cer', config.params['cef_reference'])
+
     # Demands for each sector
     for (region, tech, period), demand in df_cef.reset_index().groupby(['region','tech','period']):
+
+        data_id = config.data_id(region)
 
         demand = demand.round(config.params['decimal_places'])
         dem_tot = round(demand['value'].sum(), config.params['decimal_places'])
@@ -135,70 +155,68 @@ def build():
 
         # Demand
         sql = (
-            'REPLACE INTO Demand(region, period, commodity, demand, units) '
-            f'VALUES("{region}", {period}, "{dem_comm}", {dem_tot}, "{config.params["energy_units"]}")'
+            'REPLACE INTO Demand(region, period, commodity, demand, units, data_source, data_id) '
+            f'VALUES("{region}", {period}, "{dem_comm}", {dem_tot}, "{config.params["energy_units"]}", "{ref.id}", "{data_id}")'
         )
         curs.execute(sql)
         
         # LimitTechInputSplitAnnual
         for _, row in demand.iterrows():
             prop = row['value'] / dem_tot
-            # prop = round(prop, config.params['decimal_places'])
+            # prop = round(prop, config.params['decimal_places']) # causes issues on sum total not worth
             sql = (
-                'REPLACE INTO LimitTechInputSplitAnnual(region, period, input_comm, tech, operator, proportion) '
-                f'VALUES("{region}", {period}, "{row["comm"]}", "{tech}", "le", {prop})'
+                'REPLACE INTO '
+                'LimitTechInputSplitAnnual(region, period, input_comm, tech, operator, proportion, data_source, data_id) '
+                f'VALUES("{region}", {period}, "{row["comm"]}", "{tech}", "le", {prop}, "{ref.id}", "{data_id}")'
             ) # <= should, in theory, be least likely to cause infeasibility / numerical issues?
             curs.execute(sql)
 
     conn.commit()
-
-    # DSDs (only affects electricity)
-    if config.params['use_dsd']:
-        build_dsd()
-
-    if config.params['build_test_model']:
-        region_comms = set([tuple(rc) for rc in df_cef.reset_index()[['region','comm']].values])
-        build_tester(region_comms)
-
+    conn.close()
+        
 
 def build_dsd():
 
     df_dsd = pd.read_csv(config.input_files + 'dsd_electricity.csv')
 
+    conn = sqlite3.connect(config.database_file)
+
+    print("Adding DSDs...", end="")
+
     data = []
     progr = 0
     for region in config.model_regions:
+        data_id = config.data_id(region)
         for tag, sector in config.sectors.iterrows():
             for period in config.model_periods:
                 for _, row in df_dsd.iterrows():
                     dem_comm = f'{tag}_D_{sector["tech"].lower()}'
                     val = row[f'{region}.{tag}']
-                    data.append((region, period, row['season'], row['tod'], dem_comm, val))
+                    data.append((region, period, row['season'], row['tod'], dem_comm, val, data_id))
             progr += 1
-            print(f'{progr/(len(config.model_regions)*len(config.sectors))*100:.0f}% complete.')
+            print(f'\rAdding DSDs... {progr/(len(config.model_regions)*len(config.sectors))*100:.0f}% complete.', end="")
     sql = (
-        'REPLACE INTO DemandSpecificDistribution(region, period, season, tod, demand_name, dsd) '
-        f'VALUES(?,?,?,?,?,?)'
+        'REPLACE INTO DemandSpecificDistribution(region, period, season, tod, demand_name, dsd, data_id) '
+        f'VALUES(?,?,?,?,?,?,?)'
     )
 
-    conn = sqlite3.connect(config.database_file)
+    print("") # newline
     conn.executemany(sql, data)
+
     conn.commit()
     conn.close()
 
 
-def build_tester(region_comms):
+def build_tester():
 
     df_dsd = pd.read_csv(config.input_files + 'dsd_electricity.csv')
 
     conn = sqlite3.connect(config.database_file)
     curs = conn.cursor()
-
+    
+    # Region
     for region in config.model_regions:
-        sql = (
-            'REPLACE INTO Region(region) '
-            f'VALUES("{region}")'
-        )
+        sql = f'REPLACE INTO Region(region) VALUES("{region}")'
         curs.execute(sql)
 
     # TimePeriod
@@ -208,27 +226,16 @@ def build_tester(region_comms):
             f'VALUES({i}, {period}, "f")'
         )
         curs.execute(sql)
-        if config.params['use_dsd']:
-            for idx, row in df_dsd.iterrows():
-                sql = (
-                    'REPLACE INTO TimeSeason(period, sequence, season) '
-                    f'VALUES({period}, {idx}, "{row["season"]}")'
-                )
-                curs.execute(sql)
-                sql = (
-                    'REPLACE INTO TimeSegmentFraction(period, season, tod, segfrac) '
-                    f'VALUES({period}, "{row["season"]}", "{row["tod"]}", {1/len(df_dsd)})'
-                )
-                curs.execute(sql)
-        else:
+
+        for idx, row in df_dsd.iterrows():
             sql = (
                 'REPLACE INTO TimeSeason(period, sequence, season) '
-                f'VALUES({period}, 0, "S")'
+                f'VALUES({period}, {idx}, "{row["season"]}")'
             )
             curs.execute(sql)
             sql = (
                 'REPLACE INTO TimeSegmentFraction(period, season, tod, segfrac) '
-                f'VALUES({period}, "S", "D", 1)'
+                f'VALUES({period}, "{row["season"]}", "{row["tod"]}", {1/len(df_dsd)})'
             )
             curs.execute(sql)
 
@@ -239,57 +246,41 @@ def build_tester(region_comms):
     curs.execute(sql)
 
     # Time slices
-    if config.params['use_dsd']:
-        for season in df_dsd['season'].unique():
-            sql = (
-                'REPLACE INTO SeasonLabel(season) '
-                f'VALUES("{season}")'
-            )
-            curs.execute(sql)
-        for idx, tod in enumerate(df_dsd['tod'].unique()):
-            sql = (
-                'REPLACE INTO TimeOfDay(sequence, tod) '
-                f'VALUES({idx}, "{tod}")'
-            )
-            curs.execute(sql)
-    else:
+    for season in df_dsd['season'].unique():
         sql = (
             'REPLACE INTO SeasonLabel(season) '
-            f'VALUES("S")'
+            f'VALUES("{season}")'
         )
         curs.execute(sql)
+    for idx, tod in enumerate(df_dsd['tod'].unique()):
         sql = (
             'REPLACE INTO TimeOfDay(sequence, tod) '
-            f'VALUES(0, "D")'
+            f'VALUES({idx}, "{tod}")'
         )
         curs.execute(sql)
-
-    sql = (
-        'REPLACE INTO Commodity(name, flag, description) '
-        'VALUES("ethos", "s", "(PJ) dummy")'
-    )
-    curs.execute(sql)
-    sql = (
-        'REPLACE INTO Technology(tech, flag, sector, unlim_cap, annual) '
-        'VALUES("IMPORT", "p", "import", 1, 1)'
-    )
-    curs.execute(sql)
-    
-    for region, comm in region_comms:
-        sql = (
-            'REPLACE INTO Efficiency(region, input_comm, tech, vintage, output_comm, efficiency) '
-            f'VALUES("{region}", "ethos", "IMPORT", 2025, "{comm}", 1.0)'
-        )
-        curs.execute(sql)
-
-        for period in config.model_periods:
-            sql = (
-                'REPLACE INTO CostVariable(region, period, tech, vintage, cost) '
-                f'VALUES("{region}", {period}, "IMPORT", 2025, 1)'
-            )
-            curs.execute(sql)
 
     conn.commit()
+    conn.close()
+
+
+def build_metadata():
+
+    conn = sqlite3.connect(config.database_file)
+    curs = conn.cursor()
+
+    # Add all references in the bibliography to the references tables
+    for reference in config.refs:
+        curs.execute(f"""REPLACE INTO
+                     DataSource(source_id, source, data_id)
+                     VALUES('{reference.id}', '{reference.citation}', "{config.data_id()}")""")
+
+    for id in config.data_ids:
+        curs.execute(f"""REPLACE INTO
+                     DataSet(data_id)
+                     VALUES('{id}')""")
+        
+    conn.commit()
+    conn.close()
 
 
 if __name__ == "__main__":

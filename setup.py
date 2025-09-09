@@ -10,22 +10,77 @@ import sqlite3
 
 
 
-def build_schema():
+def instantiate_database():
+    
+    # Check if database exists or needs to be built
+    build_db = not os.path.exists(config.database_file)
+
+    # Connect to the new database file
     conn = sqlite3.connect(config.database_file)
-    conn.executescript(open(config.schema_file, 'r').read())
+    curs = conn.cursor() # Cursor object interacts with the sqlite db
+
+    # Build the database if it doesn't exist. Otherwise clear all data if forced
+    if build_db: curs.executescript(open(config.schema_file, 'r').read())
+    elif config.params['force_wipe_database']:
+        tables = [t[0] for t in curs.execute("""SELECT name FROM sqlite_master WHERE type='table';""").fetchall()]
+        for table in tables: curs.execute(f"DELETE FROM '{table}'")
+        curs.executescript(open(config.schema_file, 'r').read())
+        print("Database wiped prior to aggregation. See params.\n")
+
     conn.commit()
+
+    # VACUUM operation to clean up any empty rows
+    conn.execute("VACUUM;")
+    conn.commit()
+
     conn.close()
 
 
-def instantiate_database():
-    # Check if database exists or needs to be built
-    if os.path.exists(config.database_file):
-        if config.params['force_wipe_database']:
-            print('Database wiped prior to aggregation.')
-            os.remove(config.database_file)
-            build_schema()
-    else:
-        build_schema()
+
+class reference:
+    """
+    Stores a single reference and its attributes
+    - id: the unique id for the source_id column
+    - citation: the full citation to go in the DataSource table
+    """
+
+    id: str
+    citation: str
+
+    def __init__(self, id: str, citation: str):
+        self.id = id
+        self.citation = citation
+
+
+class bibliography:
+    """This class stores references and handles unique indexing"""
+
+    references: dict[str, reference] = dict()
+
+    def __iter__(self):
+        for name, ref in self.references.items():
+            yield ref
+
+    def add(cls, name: str, citation: str) -> reference | None:
+        """Add a reference to the log and return the reference object"""
+
+        if name in cls.references:
+            return cls.references[name]
+        else:
+            num = len(cls.references.keys()) + 1
+            id = f"D{num}" if num >= 10 else f"D0{num}" # L01 -> L99 unique IDs
+            ref = reference(id=id, citation=citation)
+            cls.references[name] = ref
+            return ref
+    
+    def get(cls, name: str) -> reference | None:
+        """Returns a reference by its semantic name"""
+
+        if name not in cls.references:
+            print(f"Tried to get a reference that had not been added yet: {name}")
+            return
+        else:
+            return cls.references[name]
 
 
 
@@ -34,6 +89,9 @@ class config:
     # File locations
     _this_dir = os.path.realpath(os.path.dirname(__file__)) + "/"
     input_files = _this_dir + 'input_files/'
+
+    refs: bibliography = bibliography()
+    data_ids = set()
 
     _instance = None # singleton pattern
 
@@ -78,6 +136,14 @@ class config:
         config.schema_file = config.input_files + config.params['sqlite_schema']
         config.database_file = config._this_dir + config.params['sqlite_database']
         instantiate_database()
+
+
+    # Gets a formatted dataset ID
+    def data_id(text: str = ''):
+
+        id = f"{config.params['data_id_prefix']}{text}{config.params['data_version']}"
+        config.data_ids.add(id)
+        return id
         
 
 
