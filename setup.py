@@ -68,7 +68,8 @@ class bibliography:
             return cls.references[name]
         else:
             num = len(cls.references.keys()) + 1
-            id = f"D{num}" if num >= 10 else f"D0{num}" # L01 -> L99 unique IDs
+            var = config.params['data_variant']
+            id = f"{var}{num}" if num >= 10 else f"{var}0{num}" # source 01 to 99
             ref = reference(id=id, citation=citation)
             cls.references[name] = ref
             return ref
@@ -139,9 +140,12 @@ class config:
 
 
     # Gets a formatted dataset ID
-    def data_id(text: str = ''):
+    def data_id(
+            sector: str = '',
+            region: str = '',
+        ):
 
-        id = f"{config.params['data_id_prefix']}{text}{config.params['data_version']}"
+        id = f"{sector}{config.params['data_variant']}{region}{config.params['data_version']}"
         config.data_ids.add(id)
         return id
         

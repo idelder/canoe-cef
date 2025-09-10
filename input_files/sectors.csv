@@ -1,5 +1,5 @@
-﻿tag,tech,cef_sector,sector,tech_desc,include
+﻿tag,code,cef_sector,sector,tech_desc,include
 C,COM,Commercial,commercial,all commercial energy demands,TRUE
 I,IND,Industrial,industrial,all industrial energy demands,TRUE
 R,RES,Residential,residential,all residential energy demands,TRUE
-T,TRS,Transportation,transportation,all transportation energy demands,TRUE
+T,TRP,Transportation,transportation,all transportation energy demands,TRUE

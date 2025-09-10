@@ -34,7 +34,7 @@ def build_sectors():
     for tag, row in config.sectors.iterrows():
         if row['include']:
             sector_map[row['cef_sector']] = tag
-            technology_map[row['cef_sector']] = row['tech']
+            technology_map[row['cef_sector']] = row['code']
 
     # Filter relevant data
     df_cef = df_cef[
@@ -86,11 +86,11 @@ def build_sectors():
     df_cef = df_cef.set_index(['region','tech','period','comm'])['value']
     df_cef = df_cef.sort_index()
 
-    data_id = config.data_id()
-
     # Add whole-sector processes
     for tech in df_cef.index.get_level_values('tech').unique():
+
         sector = config.sectors.loc[tech.split("_")[0]]
+        data_id = config.data_id(sector['code'])
         
         # Technology
         sql = (
@@ -116,10 +116,15 @@ def build_sectors():
 
     # Add commodities
     for comm in df_cef.index.get_level_values('comm').unique():
+
         sector = config.sectors.loc[comm.split("_")[0]]
+        data_id = config.data_id(sector['code'])
+
+        # Because two CEF biofuel types go to bio
         commodity = config.commodities.loc[comm.split("_")[1]]
         if isinstance(commodity, pd.DataFrame):
             commodity = commodity.iloc[0]
+
         desc = f'{commodity["description"]} ({sector["sector"]})'
 
         # Commodity (fuel comms)
@@ -132,7 +137,8 @@ def build_sectors():
     # 2025 vintage processes for all techs
     for region, tech, comm in df_cef.xs(2025, level='period').index:
 
-        data_id = config.data_id(region)
+        sector = config.sectors.loc[comm.split("_")[0]]['code']
+        data_id = config.data_id(sector, region)
         dem_comm = f'{tech.split("_")[0]}_D_{tech.split("_")[1].lower()}'
 
         # Efficiency
@@ -147,7 +153,8 @@ def build_sectors():
     # Demands for each sector
     for (region, tech, period), demand in df_cef.reset_index().groupby(['region','tech','period']):
 
-        data_id = config.data_id(region)
+        sector = config.sectors.loc[tech.split("_")[0]]['code']
+        data_id = config.data_id(sector, region)
 
         demand = demand.round(config.params['decimal_places'])
         dem_tot = round(demand['value'].sum(), config.params['decimal_places'])
@@ -270,14 +277,19 @@ def build_metadata():
 
     # Add all references in the bibliography to the references tables
     for reference in config.refs:
-        curs.execute(f"""REPLACE INTO
-                     DataSource(source_id, source, data_id)
-                     VALUES('{reference.id}', '{reference.citation}', "{config.data_id()}")""")
+        for sector in config.sectors['code'].unique():
+            curs.execute(
+                f"""REPLACE INTO
+                DataSource(source_id, source, data_id)
+                VALUES('{reference.id}', '{reference.citation}', "{config.data_id(sector)}")"""
+            )
 
     for id in config.data_ids:
-        curs.execute(f"""REPLACE INTO
-                     DataSet(data_id)
-                     VALUES('{id}')""")
+        curs.execute(
+            f"""REPLACE INTO
+            DataSet(data_id)
+            VALUES('{id}')"""
+        )
         
     conn.commit()
     conn.close()

@@ -21,7 +21,7 @@ use_dsd: false
 # Which CEF scenario to pull data for
 # "Current Measures", "Canada Net-zero", or "Global Net-zero"
 scenario: "Global Net-zero"
-data_id_prefix: "GNZ" # should resemble the scenario
+data_variant: "NZ" # should resemble the scenario
 data_version: "001"
 
 cef_reference: "Government of Canada, C. E. R. (2023, August 16). CER - Canadas Energy Future 2023: Energy Supply and Demand Projections to 2050. https://www.cer-rec.gc.ca/en/data-analysis/canada-energy-future/2023/"
